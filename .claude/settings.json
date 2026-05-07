@@ -1,16 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(echo *)",
       "Bash(cat *)",
-      "Bash(env *)",
       "Bash(curl *)",
-      "Bash(wc *)",
-      "Bash(if *)",
-      "Bash(head *)",
-      "Read",
-      "Grep",
-      "Glob"
+      "Bash(echo *)",
+      "Bash(env *)",
+      "Bash(wget *)",
+      "Bash(printenv *)"
     ]
   }
 }
