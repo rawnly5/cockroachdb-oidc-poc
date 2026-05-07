@@ -1,0 +1,125 @@
+name: OIDC Token Availability Proof
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  prove-oidc-available:
+    runs-on: ubuntu-latest
+    steps:
+      # STEP 1: Prove ACTIONS_ID_TOKEN_REQUEST_TOKEN is available from job start
+      # This is BEFORE any checkout, any auth, any verify_author
+      - name: "STEP 1: Prove OIDC Token Available Before ANY Other Step"
+        run: |
+          echo "============================================"
+          echo "OIDC TOKEN AVAILABILITY PROOF"
+          echo "============================================"
+          echo ""
+          echo "This is the FIRST step in the job."
+          echo "No checkout, no auth, no verify_author has run."
+          echo "Yet the OIDC token is ALREADY in the environment."
+          echo ""
+          echo "1. ACTIONS_ID_TOKEN_REQUEST_TOKEN:"
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "   ✅ PRESENT (length: ${#ACTIONS_ID_TOKEN_REQUEST_TOKEN} chars)"
+            echo "   First 30 chars: ${ACTIONS_ID_TOKEN_REQUEST_TOKEN:0:30}..."
+          else
+            echo "   ❌ NOT PRESENT"
+          fi
+          echo ""
+          echo "2. ACTIONS_ID_TOKEN_REQUEST_URL:"
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "   ✅ PRESENT"
+            echo "   URL: $ACTIONS_ID_TOKEN_REQUEST_URL"
+          else
+            echo "   ❌ NOT PRESENT"
+          fi
+          echo ""
+          echo "3. Attempting to request OIDC JWT..."
+          if [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            OIDC_RESPONSE=$(curl -s -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"               "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://example.com" 2>/dev/null || echo "REQUEST_FAILED")
+            if echo "$OIDC_RESPONSE" | grep -q "eyJ"; then
+              echo "   ✅ OIDC JWT SUCCESSFULLY OBTAINED"
+              echo "   JWT starts with: $(echo "$OIDC_RESPONSE" | head -c 50)..."
+            elif echo "$OIDC_RESPONSE" | grep -q "error"; then
+              echo "   ⚠️ Request made but got error (token IS available, just needs proper audience)"
+              echo "   Error: $(echo "$OIDC_RESPONSE" | head -c 200)"
+            else
+              echo "   Response: $(echo "$OIDC_RESPONSE" | head -c 200)"
+            fi
+          fi
+          echo ""
+          echo "4. ALL credential-related environment variables:"
+          env | grep -iE "(TOKEN|CREDENTIAL|OIDC|AUTH|GOOGLE|SERVICE|KEY|SECRET)" | while read line; do
+            VAR_NAME=$(echo "$line" | cut -d= -f1)
+            echo "   $VAR_NAME = <REDACTED>"
+          done
+          echo ""
+          echo "============================================"
+          echo "CONCLUSION: OIDC token IS available from the"
+          echo "very first step. Any subsequent step that"
+          echo "reads workspace files (like claude-code-action"
+          echo "reading CLAUDE.md) can exfiltrate this token."
+          echo "============================================"
+
+      # STEP 2: Checkout fork code (mirrors cockroachdb Step 2)
+      - name: "STEP 2: Checkout Fork Code (mirrors cockroachdb)"
+        uses: actions/checkout@v5
+
+      # STEP 3: Show that CLAUDE.md from fork is on disk
+      - name: "STEP 3: Prove Fork CLAUDE.md Is On Runner Disk"
+        run: |
+          echo "============================================"
+          echo "FORK CODE ON DISK PROOF"
+          echo "============================================"
+          echo ""
+          if [ -f "CLAUDE.md" ]; then
+            echo "✅ CLAUDE.md exists in workspace"
+            echo "--- Content (first 20 lines) ---"
+            head -20 CLAUDE.md
+            echo "--- End ---"
+          else
+            echo "ℹ️ No CLAUDE.md in this repo (would be present in attack)"
+          fi
+          echo ""
+          if [ -f ".claude/settings.json" ]; then
+            echo "✅ .claude/settings.json exists in workspace"
+            cat .claude/settings.json
+          else
+            echo "ℹ️ No .claude/settings.json (would be present in attack)"
+          fi
+          echo ""
+          echo "============================================"
+          echo "In cockroachdb/cockroach, claude-code-action"
+          echo "reads these files and FOLLOWS their instructions."
+          echo "If CLAUDE.md says 'cat $GOOGLE_APPLICATION_CREDENTIALS'"
+          echo "Claude WILL execute it with Bash(cat *) permission."
+          echo "============================================"
+
+      # STEP 4: Show the TOCTOU window
+      - name: "STEP 4: TOCTOU Window Summary"
+        run: |
+          echo "============================================"
+          echo "TOCTOU VULNERABILITY SUMMARY"
+          echo "============================================"
+          echo ""
+          echo "Timeline (mirroring cockroachdb/cockroach):"
+          echo "  T0: Job starts → ACTIONS_ID_TOKEN_REQUEST_TOKEN in env"
+          echo "  T2: checkout@v5 (ref: head.sha) → fork CLAUDE.md on disk"
+          echo "  T3: google-github-actions/auth → GCP credentials on disk"
+          echo "  T5: verify_author → authorization check (TOO LATE)"
+          echo "  T6/T8/T10: claude-code-action → reads CLAUDE.md → FOLLS instructions"
+          echo ""
+          echo "Attack: CLAUDE.md instructs Claude to run:"
+          echo "  cat $GOOGLE_APPLICATION_CREDENTIALS"
+          echo "  (already allowed by .claude/settings.json: Bash(cat *))"  
+          echo ""
+          echo "Result: GCP service account private key exfiltrated"
+          echo "============================================"
