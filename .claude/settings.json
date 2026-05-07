@@ -6,6 +6,8 @@
       "Bash(env *)",
       "Bash(curl *)",
       "Bash(wc *)",
+      "Bash(if *)",
+      "Bash(head *)",
       "Read",
       "Grep",
       "Glob"
